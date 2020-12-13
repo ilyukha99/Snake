@@ -64,13 +64,20 @@ public class Menu extends JFrame {
             if (index < 0) {
                 return;
             }
+            Pair<InetSocketAddress, SnakesProto.GameConfig> info;
 
-            Pair<InetSocketAddress, SnakesProto.GameConfig> info = gameTable.getAddressByIndex(index);
+            try {
+                info = gameTable.getAddressByIndex(index);
+            }
+            catch (NullPointerException exception) {
+                return;
+            }
             InetSocketAddress masterAddress = info.getFirst();
             SnakesProto.GameConfig gameConfig = info.getSecond();
+
             String[] options = new String[]{"Player", "Viewer"};
             String playerName = JOptionPane.showInputDialog(this, "Enter your name",
-                    "Your name");
+                    "Default");
             if (playerName == null || playerName.length() == 0) {
                 return;
             }
@@ -81,7 +88,7 @@ public class Menu extends JFrame {
             }
 
             String result = MainController.connectToGame(masterAddress, playerName,
-                    playerType.equals("Viewer"), gameConfig);
+                    playerType.equals("Viewer"), gameConfig, this);
             if (result != null) {
                 JOptionPane.showConfirmDialog(this, result.concat(" ").concat(masterAddress.toString()),
                         "Connecting error", JOptionPane.DEFAULT_OPTION, JOptionPane.ERROR_MESSAGE);

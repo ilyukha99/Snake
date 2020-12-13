@@ -25,6 +25,7 @@ public class AnnouncementTable extends JTable {
         tableModel.setColumnIdentifiers(new String[]{ "Ведущий", "#", "Размер", "Еда" });
         setModel(tableModel);
         gameMap = games;
+        getTableHeader().setReorderingAllowed(false);
     }
 
     public void update() {
@@ -71,7 +72,7 @@ public class AnnouncementTable extends JTable {
         }
     }
 
-    public Pair<InetSocketAddress, GameConfig> getAddressByIndex(int index) {
+    public Pair<InetSocketAddress, GameConfig> getAddressByIndex(int index) throws NullPointerException {
         InetSocketAddress address = indexedAddresses.get(index);
         return new Pair<>(address, gameMap.get(address).getFirst().getConfig());
     }

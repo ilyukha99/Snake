@@ -11,7 +11,7 @@ public class FoodCell implements Cell {
 
     static {
         try {
-            image = ImageIO.read(new File("C:\\Users\\Ilya\\Labs\\Snake\\src\\main\\resources\\apple.jpg"));
+            image = ImageIO.read(new File("C:\\Users\\Ilya\\Labs\\Snake\\apple.jpg"));
         }
         catch (IOException exc) {
             System.err.println(exc.getMessage());

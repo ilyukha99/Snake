@@ -5,14 +5,13 @@ import MessageSerialize.SnakesProto.*;
 import MessageSerialize.SnakesProto.GameState.Snake;
 import MessageSerialize.SnakesProto.GameState.Coord;
 import Net.Analyzer;
+import Net.Sender;
 import Utilities.CellModifier;
 import Utilities.Pair;
 import View.*;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
+import java.net.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,32 +22,38 @@ import java.util.stream.Collectors;
 public class GameCenter extends Thread {
 
     private final AtomicInteger nextPlayerId = new AtomicInteger(0);
-    private int gameStateNumber = 0;
+    private int gameStateNumber;
+    private int deputyId = -1;
     private final int width;
     private final int height;
     private GameState actualGameState;
     private final GameConfig gameConfig;
     private final String playerName;
-    private final ConcurrentHashMap<Integer, GamePlayer.Builder> players = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Integer, GamePlayer.Builder> players;
+    private final ConcurrentHashMap<InetSocketAddress, Integer> addresses;
     private final CopyOnWriteArrayList<Snake.Builder> snakes = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Coord> food = new CopyOnWriteArrayList<>();
-    private final ConcurrentHashMap<Integer, Direction> nextDirection; //player's id and next direction
+    private final ConcurrentHashMap<Integer, Direction> nextDirections; //player's id and next direction
     private final GameFrame gameFrame;
     private DatagramSocket socket;
     private CompletableFuture<Void> completableFuture;
     private final CellModifier modifier;
     private final Analyzer analyzer;
-    private final int gameId;
+    private final int myId;
+    private final Sender sender;
 
-    public GameCenter(GameConfig config, String name, Cell[] cells,
-                      ConcurrentHashMap<Integer, Direction> nextDirection) {
+    public GameCenter(GameConfig config, String name, ConcurrentHashMap<Integer, Direction> nextDirections) {
         gameConfig = config;
         playerName = name;
         width = gameConfig.getWidth();
         height = gameConfig.getHeight();
-        this.nextDirection = nextDirection;
-        gameFrame = new GameFrame(config, cells, nextDirection);
+        this.nextDirections = nextDirections;
+        myId = getNextPlayerId();
+        Cell[] cells = new Cell[config.getWidth() * config.getHeight()];
+        gameFrame = new GameFrame(config, cells, nextDirections, myId);
         modifier = new CellModifier(width, height, 5, cells);
+        players = new ConcurrentHashMap<>(4, 0.8f);
+        addresses = new ConcurrentHashMap<>(4, 0.8f, 1);
         try {
             socket = new DatagramSocket();
         }
@@ -56,14 +61,14 @@ public class GameCenter extends Thread {
             System.err.println(exc.getMessage() + " in GameCenter");
             System.exit(1);
         }
-        analyzer = new Analyzer(this, socket);
+        sender = new Sender(this, socket, config);
+        analyzer = new Analyzer(this, socket, sender, nextDirections);
         analyzer.start();
-        gameId = 0;
+        sender.start();
     }
 
     public void run() {
         initFirstState();
-        ++gameStateNumber;
         gameFrame.repaint();
         
         completableFuture = CompletableFuture.runAsync(() -> {
@@ -109,29 +114,40 @@ public class GameCenter extends Thread {
                 afterSleep = System.currentTimeMillis();
                 updateFood();
                 createNextState();
+                updateGameState();
+                sender.distributeNewState(addresses.keySet(), actualGameState, myId);
                 gameFrame.repaint();
-                ++gameStateNumber;
                 gameFrame.updateTable(players.values());
             }
         }
         catch (InterruptedException ignored) {}
-        socket.close();
-        completableFuture.cancel(true);
-        analyzer.interrupt();
+        catch (IOException exception) {
+            System.err.println(exception.getMessage() + " in GameCenter");
+        }
+        finally {
+            socket.close();
+            completableFuture.cancel(true);
+            analyzer.interrupt();
+            sender.interrupt();
+        }
     }
 
     private void initFirstState() {
-//        addNewPlayer("Vasyok", "", 200, NodeRole.DEPUTY);
-//        Pair<Integer, Direction> pl1 = modifier.positionNewSnake(modifier.getSnakeBase(), 1);
-//        addNewSnake(1, pl1.getFirst(), pl1.getSecond());
-        addNewSnake(gameId);
-        addNewPlayer(playerName, "", 2020, NodeRole.MASTER, gameId);
+        addNewSnake(myId);
+        addNewPlayer(playerName, "", socket.getLocalPort(), NodeRole.MASTER, myId);
         updateFood();
-        actualGameState = createGameState(gameStateNumber);
+        updateGameState();
     }
 
     public void addNewPlayer(String playerName, String address, int port, NodeRole role, int id) {
-        players.put(players.size(), GamePlayer.newBuilder()
+        if (id != myId) {
+            addresses.put(new InetSocketAddress(address, port), id);
+        }
+        if (deputyId == -1 && role.equals(NodeRole.NORMAL)) {
+            deputyId = id;
+            role = NodeRole.DEPUTY;
+        }
+        players.put(id, GamePlayer.newBuilder()
                 .setName(playerName)
                 .setId(id)
                 .setIpAddress(address)
@@ -139,6 +155,53 @@ public class GameCenter extends Thread {
                 .setRole(role)
                 .setType(PlayerType.HUMAN)
                 .setScore(0));
+    }
+
+    public void removePlayer(InetSocketAddress playerAddress) throws IOException {
+        if (!addresses.containsKey(playerAddress)) {
+            return;
+        }
+        int id = addresses.get(playerAddress);
+        GamePlayer.Builder player = players.get(id);
+        if (player != null) {
+            snakes.stream().filter(s -> s.getPlayerId() == id).forEach(s -> s.setState(Snake.SnakeState.ZOMBIE));
+            if (player.getRole().equals(NodeRole.DEPUTY)) {
+                findNewDeputy();
+            }
+        }
+        addresses.remove(playerAddress);
+        players.remove(id);
+    }
+
+    private void findNewDeputy() throws IOException {
+        for (Map.Entry<Integer, GamePlayer.Builder> entry : players.entrySet()) {
+            GamePlayer.Builder player = entry.getValue();
+            if (player.getRole().equals(NodeRole.NORMAL)) {
+                player.setRole(NodeRole.DEPUTY);
+                deputyId = entry.getKey();
+                sender.sendRoleChange(player, NodeRole.DEPUTY, NodeRole.MASTER);
+            }
+        }
+    }
+
+    public boolean verifySteer(InetSocketAddress address, int id) {
+        GamePlayer.Builder player = players.get(id);
+        if (player == null) {
+            return false;
+        }
+        return addresses.containsKey(address) && player.getRole() != NodeRole.VIEWER;
+    }
+
+    public boolean checkJoin(InetAddress address, int port) {
+        for (GamePlayer.Builder player : players.values()) {
+            try {
+                if (InetAddress.getByName(player.getIpAddress()).equals(address) && player.getPort() == port) {
+                    return false;
+                }
+            }
+            catch (UnknownHostException ignored) {}
+        }
+        return true;
     }
 
     public boolean addNewSnake(int id) throws IllegalStateException { //returns player id
@@ -162,7 +225,7 @@ public class GameCenter extends Thread {
 
         head = res.getFirst();
         Direction direction = res.getSecond();
-        nextDirection.put(id, direction);
+        nextDirections.put(id, direction);
         Coord bodyCellOffset = switch (direction) {
             case UP -> Coord.newBuilder().setX(0).setY(1).build();
             case RIGHT -> Coord.newBuilder().setX(-1).setY(0).build();
@@ -210,9 +273,9 @@ public class GameCenter extends Thread {
         }
     }
 
-    private GameState createGameState(int orderNum) {
-        return GameState.newBuilder()
-                .setStateOrder(orderNum)
+    private void updateGameState() {
+        actualGameState = GameState.newBuilder()
+                .setStateOrder(gameStateNumber++)
                 .addAllSnakes(snakes.stream().map(Snake.Builder::build).collect(Collectors.toCollection(ArrayList::new)))
                 .addAllFoods(food)
                 .setPlayers(GamePlayers.newBuilder().addAllPlayers(players.values().stream()
@@ -274,7 +337,7 @@ public class GameCenter extends Thread {
 
     private void deleteSnake(Snake.Builder snake) {
         Coord head = snake.getPoints(0), keyPoint;
-        int size = snake.getPointsCount(), x = head.getX(), y = head.getY();
+        int size = snake.getPointsCount(), x = head.getX(), y = head.getY(), id = snake.getPlayerId();
         double deadFoodProb = gameConfig.getDeadFoodProb(), random = Math.random();
         if (random <= deadFoodProb) {
             modifier.setFood(y * width + x);
@@ -306,7 +369,12 @@ public class GameCenter extends Thread {
             }
         }
         snakes.remove(snake);
-        players.get(snake.getPlayerId()).setRole(NodeRole.VIEWER);
+        nextDirections.remove(id);
+        GamePlayer.Builder player = players.get(id);
+        if (player == null) {
+            return;
+        }
+        player.setRole(NodeRole.VIEWER);
     }
 
     private void moveSnakeHead(Snake.Builder snake, int nextHeadIndex, Direction nextDir) {
@@ -335,13 +403,13 @@ public class GameCenter extends Thread {
     //returns index from cells and actual direction
     private Pair<Integer, Direction> getNextHeadIndex(Snake.Builder snake) {
         int playerId = snake.getPlayerId();
-        if (areOpposite(snake.getHeadDirection(), nextDirection.get(playerId))) {
-            nextDirection.put(playerId, snake.getHeadDirection()); //ignoring
+        if (areOpposite(snake.getHeadDirection(), nextDirections.get(playerId))) {
+            nextDirections.put(playerId, snake.getHeadDirection()); //ignoring
         }
         int headX = snake.getPoints(0).getX(), headY = snake.getPoints(0).getY();
         int index = headY * width + headX;
-        Direction actualDirection = nextDirection.get(playerId);
-        int nextIndex = switch (nextDirection.get(playerId)) {
+        Direction actualDirection = nextDirections.get(playerId);
+        int nextIndex = switch (nextDirections.get(playerId)) {
             case UP -> (headY == 0) ? (height - 1) * width + headX : index - width;
             case RIGHT -> (headX == width - 1) ? headY * width : index + 1;
             case DOWN -> (headY == height - 1) ? headX : index + width;
@@ -416,7 +484,7 @@ public class GameCenter extends Thread {
     }
 
     public int getNextPlayerId() {
-        return nextPlayerId.incrementAndGet();
+        return nextPlayerId.getAndIncrement();
     }
 
     private Coord getCellCoordsByIndex(Snake.Builder snake, int index) {

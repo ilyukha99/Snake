@@ -4,7 +4,6 @@ import Graphics.Menu;
 import MessageSerialize.SnakesProto;
 import MessageSerialize.SnakesProto.GameMessage;
 import Net.GameListener;
-import View.Cell;
 
 import javax.swing.*;
 import java.io.IOException;
@@ -21,6 +20,7 @@ public class MainController {
     private static final GameListener gameListener = new GameListener();
     private static JFrame mainMenu;
     private static GameCenter gameCenter;
+    private static ConnectedNode connectedNode;
 
     public static void startListener() {
         SwingUtilities.invokeLater(()-> new Menu(gameListener.getAvailableGames()));
@@ -29,15 +29,14 @@ public class MainController {
 
     public static void startNewGame(SnakesProto.GameConfig config, String name, JFrame menu) {
         mainMenu = menu;
-        Cell[] cells = new Cell[config.getWidth() * config.getHeight()];
-        ConcurrentHashMap<Integer, SnakesProto.Direction> nextDirection
+        ConcurrentHashMap<Integer, SnakesProto.Direction> nextDirections
                 = new ConcurrentHashMap<>(10, 0.81f,1);
-        gameCenter = new GameCenter(config, name, cells, nextDirection);
+        gameCenter = new GameCenter(config, name, nextDirections);
         gameCenter.start();
     }
 
-    public static void setMenuVisible() {
-        mainMenu.setVisible(true);
+    public static void setMenuVisible(boolean flag) {
+        mainMenu.setVisible(flag);
     }
 
     public static void stopGameCenter() {
@@ -45,8 +44,9 @@ public class MainController {
     }
 
     public static String connectToGame(InetSocketAddress masterAddress, String name, boolean onlyView,
-            SnakesProto.GameConfig config) {
-        DatagramSocket socket;
+            SnakesProto.GameConfig config, Menu menu) {
+        mainMenu = menu;
+        DatagramSocket socket = null;
         try {
             socket = new DatagramSocket();
             long msgSeq = UUID.randomUUID().getMostSignificantBits();
@@ -62,17 +62,18 @@ public class MainController {
             for (int it = 0; it < 3; ++it) {
                 sendPacket = new DatagramPacket(bytes, bytes.length, masterAddress);
                 socket.send(sendPacket); //sending join message
-                System.out.println("Sent to " + masterAddress);
                 try {
                     socket.receive(recvPacket);
                     GameMessage message = GameMessage.parseFrom(Arrays.copyOf(recvPacket.getData(),
                             recvPacket.getLength()));
                     if (message.hasAck() && message.getMsgSeq() == msgSeq) {
                         int myId = message.getReceiverId();
-                        new ConnectedNode(myId, config, socket, masterAddress).start();
+                        connectedNode = new ConnectedNode(myId, config, socket, masterAddress);
+                        connectedNode.start();
                         return null;
                     }
                     if (message.hasError()) {
+                        socket.close();
                         return message.getError().getErrorMessage();
                     }
                 }
@@ -80,11 +81,21 @@ public class MainController {
             }
         }
         catch (IOException exc) {
+            if (socket != null) {
+                if (!socket.isClosed()) {
+                    socket.close();
+                }
+            }
             System.err.println(exc.getMessage());
         }
         return "Can not connect to the host";
     }
+
+    public static void stopConnectedNode() {
+        connectedNode.interrupt();
+    }
 }
+
 //    public static MainController getInstance() {
 //        MainController localInstance = instance;
 //        if (localInstance == null) {

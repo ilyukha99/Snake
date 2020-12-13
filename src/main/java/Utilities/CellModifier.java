@@ -9,17 +9,19 @@ public class CellModifier {
     private final int height;
     private final int baseSize;
     private final Cell[] cells;
+    private final int size;
 
     public CellModifier(int width, int height, int baseSize, Cell[] cells) {
         this.width = width;
         this.height = height;
         this.baseSize = baseSize;
         this.cells = cells;
+        size = width * height;
         init();
     }
 
     public synchronized Cell get(int index) {
-        if (index > width * height) {
+        if (index >= size || index < 0) {
             throw new IllegalStateException("Index out of bounds");
         }
         return cells[index];
@@ -42,14 +44,13 @@ public class CellModifier {
     }
 
     public synchronized void init() {
-        int size = width * height;
         for (int it = 0; it != size; ++it) {
             cells[it] = new EmptyCell();
         }
     }
 
     public synchronized int size() {
-        return cells.length;
+        return size;
     }
 
     public synchronized int getSnakeBase() {
@@ -125,5 +126,13 @@ public class CellModifier {
             ++direction;
         }
         throw new IllegalStateException("How can dis be");
+    }
+
+    public synchronized void setEmpty() {
+        for (int it = 0; it < size; ++it) {
+            if (!cells[it].getCellType().equals(CellType.EMPTY)) {
+                cells[it] = new EmptyCell();
+            }
+        }
     }
 }

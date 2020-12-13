@@ -3,6 +3,7 @@ package Graphics;
 import MessageSerialize.SnakesProto;
 import MessageSerialize.SnakesProto.GamePlayer;
 import GameLogic.MainController;
+import Net.Sender;
 import View.Cell;
 
 import javax.swing.*;
@@ -11,6 +12,8 @@ import javax.swing.table.TableModel;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -19,8 +22,7 @@ import java.util.stream.Collectors;
 
 public class GameFrame extends JFrame {
 
-    private final SnakeField snakefield;
-    private final TablePanel scorePanel;
+    private TablePanel scorePanel;
 
     public static class SnakeField extends JPanel {
 
@@ -60,16 +62,73 @@ public class GameFrame extends JFrame {
             TableModel tableModel = new DefaultTableModel() {{
                 Object[] identifiers = new String[]{ "Place", "Name", "Score" };
                 setColumnIdentifiers(identifiers);
-            }};
+            }
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    return false;
+                }
+            };
 
             scoreTable = new JTable(tableModel);
+            scoreTable.getTableHeader().setReorderingAllowed(false);
+            scoreTable.setFocusable(false);
             add(new JScrollPane(scoreTable));
         }
     }
 
     public GameFrame(SnakesProto.GameConfig config, Cell[] cells,
-                     ConcurrentHashMap<Integer, SnakesProto.Direction> nextDirection) {
+                     ConcurrentHashMap<Integer, SnakesProto.Direction> nextDirection, int centerId) {
         super("Snake");
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent event) {
+                if (event.getKeyChar() == 'w' || event.getKeyCode() == KeyEvent.VK_UP) {
+                    nextDirection.put(centerId, SnakesProto.Direction.UP);
+                }
+                if (event.getKeyChar() == 'a' || event.getKeyCode() == KeyEvent.VK_LEFT) {
+                    nextDirection.put(centerId, SnakesProto.Direction.LEFT);
+                }
+                if (event.getKeyChar() == 's' || event.getKeyCode() == KeyEvent.VK_DOWN) {
+                    nextDirection.put(centerId, SnakesProto.Direction.DOWN);
+                }
+                if (event.getKeyChar() == 'd' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
+                    nextDirection.put(centerId, SnakesProto.Direction.RIGHT);
+                }
+            }
+        });
+        initGameFrame(config, cells, true);
+    }
+
+    public GameFrame(SnakesProto.GameConfig config, Cell[] cells, Sender sender,
+                     InetSocketAddress masterAddress, int playerId) {
+        super("Snake");
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent event) {
+                try {
+                    sender.removeSteer();
+                    if (event.getKeyChar() == 'w' || event.getKeyCode() == KeyEvent.VK_UP) {
+                        sender.sendSteer(masterAddress, SnakesProto.Direction.UP, playerId);
+                    }
+                    if (event.getKeyChar() == 'a' || event.getKeyCode() == KeyEvent.VK_LEFT) {
+                        sender.sendSteer(masterAddress, SnakesProto.Direction.LEFT, playerId);
+                    }
+                    if (event.getKeyChar() == 's' || event.getKeyCode() == KeyEvent.VK_DOWN) {
+                        sender.sendSteer(masterAddress, SnakesProto.Direction.DOWN, playerId);
+                    }
+                    if (event.getKeyChar() == 'd' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
+                        sender.sendSteer(masterAddress, SnakesProto.Direction.RIGHT, playerId);
+                    }
+                }
+                catch (IOException exception) {
+                    System.err.println(exception.getMessage() + " in KeyListener");
+                }
+            }
+        });
+        initGameFrame(config, cells, false);
+    }
+
+    public void initGameFrame(SnakesProto.GameConfig config, Cell[] cells, boolean master) {
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
         setResizable(false);
@@ -78,40 +137,31 @@ public class GameFrame extends JFrame {
         int width = screenSize.width * 3 / 4, height = screenSize.height * 3 / 4;
         setSize(width, height);
 
-        snakefield = new SnakeField(config.getWidth(), config.getHeight(), cells);
+        SnakeField snakefield = new SnakeField(config.getWidth(), config.getHeight(), cells);
         snakefield.setPreferredSize(new Dimension(width * 7 / 10, height));
         add(snakefield, BorderLayout.WEST);
 
         scorePanel = new TablePanel(new Dimension(width * 12 / 43, height));
         JButton exit = new JButton("Exit");
-        exit.addActionListener(event -> {
-            this.dispose();
-            MainController.setMenuVisible();
-            MainController.stopGameCenter();
-        });
+        if (master) {
+            exit.addActionListener(event -> {
+                this.dispose();
+                MainController.setMenuVisible(true);
+                MainController.stopGameCenter();
+            });
+        }
+        else {
+            exit.addActionListener(event -> {
+                this.dispose();
+                MainController.setMenuVisible(true);
+                MainController.stopConnectedNode();
+            });
+        }
         scorePanel.add(exit, BorderLayout.SOUTH);
         add(scorePanel, BorderLayout.EAST);
 
+        //setAlwaysOnTop(true);
         setFocusable(true);
-
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent event) {
-                if (event.getKeyChar() == 'w' || event.getKeyCode() == KeyEvent.VK_UP) {
-                    nextDirection.put(0, SnakesProto.Direction.UP);
-                }
-                if (event.getKeyChar() == 'a' || event.getKeyCode() == KeyEvent.VK_LEFT) {
-                    nextDirection.put(0, SnakesProto.Direction.LEFT);
-                }
-                if (event.getKeyChar() == 's' || event.getKeyCode() == KeyEvent.VK_DOWN) {
-                    nextDirection.put(0, SnakesProto.Direction.DOWN);
-                }
-                if (event.getKeyChar() == 'd' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
-                    nextDirection.put(0, SnakesProto.Direction.RIGHT);
-                }
-            }
-        });
-
         validate();
         setVisible(true);
     }
@@ -123,7 +173,7 @@ public class GameFrame extends JFrame {
                 .collect(Collectors.toCollection(ArrayList::new));
         DefaultTableModel tableModel = (DefaultTableModel) scorePanel.scoreTable.getModel();
         tableModel.setNumRows(0);
-        if (sortedPlayers.size() == 0) {
+        if (sortedPlayers.isEmpty()) {
             return;
         }
         int size = sortedPlayers.size();
