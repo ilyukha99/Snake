@@ -65,10 +65,10 @@ public class ConnectedNode extends Thread {
                                 if (!parseGameStateMsg(message)) {
                                     continue;
                                 }
+                                sender.sendAck(masterAddress, message.getMsgSeq(), 0, id);
                                 fullCellsRefill();
                                 gameFrame.repaint();
                                 gameFrame.updateTable(players.stream().map(GamePlayer::toBuilder).collect(Collectors.toList()));
-                                sender.sendAck(masterAddress, message.getMsgSeq(), 0, id);
                             }
                             case ACK -> sender.removeFromList(masterAddress, message.getMsgSeq());
                             case PING -> sender.sendAck(masterAddress, message.getMsgSeq(), 0, id);
@@ -83,7 +83,9 @@ public class ConnectedNode extends Thread {
         }
         finally {
             sender.interrupt();
-            socket.close();
+            if (!socket.isClosed()) {
+                socket.close();
+            }
         }
     }
 

@@ -48,7 +48,9 @@ public class Analyzer extends Thread {
             MainController.stopGameCenter();
         }
         finally {
-            socket.close();
+            if (!socket.isClosed()) {
+                socket.close();
+            }
         }
     }
 

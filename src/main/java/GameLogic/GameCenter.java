@@ -125,7 +125,9 @@ public class GameCenter extends Thread {
             System.err.println(exception.getMessage() + " in GameCenter");
         }
         finally {
-            socket.close();
+            if (!socket.isClosed()) {
+                socket.close();
+            }
             completableFuture.cancel(true);
             analyzer.interrupt();
             sender.interrupt();
@@ -397,7 +399,9 @@ public class GameCenter extends Thread {
 
     private void incrementPlayerScore(int id) {
         GamePlayer.Builder player = players.get(id);
-        player.setScore(player.getScore() + 1);
+        if (player != null) {
+            player.setScore(player.getScore() + 1);
+        }
     }
 
     //returns index from cells and actual direction

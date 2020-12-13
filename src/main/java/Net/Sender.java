@@ -52,6 +52,11 @@ public class Sender extends Thread {
         catch (IOException exc) {
             System.err.println(exc.getMessage() + " in Sender");
         }
+        finally {
+            if (!socket.isClosed()) {
+                socket.close();
+            }
+        }
     }
 
     public void sendError(InetSocketAddress address, String message) throws IOException {

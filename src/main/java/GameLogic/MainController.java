@@ -81,12 +81,12 @@ public class MainController {
             }
         }
         catch (IOException exc) {
+            System.err.println(exc.getMessage());
             if (socket != null) {
                 if (!socket.isClosed()) {
                     socket.close();
                 }
             }
-            System.err.println(exc.getMessage());
         }
         return "Can not connect to the host";
     }
