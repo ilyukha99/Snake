@@ -151,6 +151,7 @@ public class Sender extends Thread {
                 pingTimeMap.put(address, System.currentTimeMillis());
             }
         }
+        controlMap.entrySet().removeIf(e -> e.getKey().getTypeCase().equals(GameMessage.TypeCase.PING));
         controlMap.put(ping, list);
     }
 

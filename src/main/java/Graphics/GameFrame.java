@@ -82,16 +82,16 @@ public class GameFrame extends JFrame {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent event) {
-                if (event.getKeyChar() == 'w' || event.getKeyCode() == KeyEvent.VK_UP) {
+                if (event.getKeyChar() == 'w' || event.getKeyChar() == 'ц' || event.getKeyCode() == KeyEvent.VK_UP) {
                     nextDirection.put(centerId, SnakesProto.Direction.UP);
                 }
-                if (event.getKeyChar() == 'a' || event.getKeyCode() == KeyEvent.VK_LEFT) {
+                if (event.getKeyChar() == 'a' || event.getKeyChar() == 'ф' || event.getKeyCode() == KeyEvent.VK_LEFT) {
                     nextDirection.put(centerId, SnakesProto.Direction.LEFT);
                 }
-                if (event.getKeyChar() == 's' || event.getKeyCode() == KeyEvent.VK_DOWN) {
+                if (event.getKeyChar() == 's' || event.getKeyChar() == 'ы' || event.getKeyCode() == KeyEvent.VK_DOWN) {
                     nextDirection.put(centerId, SnakesProto.Direction.DOWN);
                 }
-                if (event.getKeyChar() == 'd' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
+                if (event.getKeyChar() == 'd' || event.getKeyChar() == 'в' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
                     nextDirection.put(centerId, SnakesProto.Direction.RIGHT);
                 }
             }
@@ -107,16 +107,16 @@ public class GameFrame extends JFrame {
             public void keyPressed(KeyEvent event) {
                 try {
                     sender.removeSteer();
-                    if (event.getKeyChar() == 'w' || event.getKeyCode() == KeyEvent.VK_UP) {
+                    if (event.getKeyChar() == 'w' || event.getKeyChar() == 'ц' || event.getKeyCode() == KeyEvent.VK_UP) {
                         sender.sendSteer(masterAddress, SnakesProto.Direction.UP, playerId);
                     }
-                    if (event.getKeyChar() == 'a' || event.getKeyCode() == KeyEvent.VK_LEFT) {
+                    if (event.getKeyChar() == 'a' || event.getKeyChar() == 'ф' || event.getKeyCode() == KeyEvent.VK_LEFT) {
                         sender.sendSteer(masterAddress, SnakesProto.Direction.LEFT, playerId);
                     }
-                    if (event.getKeyChar() == 's' || event.getKeyCode() == KeyEvent.VK_DOWN) {
+                    if (event.getKeyChar() == 's' || event.getKeyChar() == 'ы' || event.getKeyCode() == KeyEvent.VK_DOWN) {
                         sender.sendSteer(masterAddress, SnakesProto.Direction.DOWN, playerId);
                     }
-                    if (event.getKeyChar() == 'd' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
+                    if (event.getKeyChar() == 'd' || event.getKeyChar() == 'в' || event.getKeyCode() == KeyEvent.VK_RIGHT) {
                         sender.sendSteer(masterAddress, SnakesProto.Direction.RIGHT, playerId);
                     }
                 }
